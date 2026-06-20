@@ -406,10 +406,13 @@ function stampText(ctx,l,fill,withStroke,strokeCol){
   const sc=strokeCol||l.strokeColor, doStroke=withStroke&&l.stroke&&l.strokeWidth>0;
   if(l.vertical){
     const cols=textLines(l), charAdv=Math.max(l.fontSize*0.12, l.fontSize+(l.letterSpacing||0)), colAdv=l.fontSize*l.lineHeight, fs=l.fontSize;
+    let maxN=1; for(const c of cols){const n=chars(c).length||1; if(n>maxN)maxN=n;}
+    const blockW=cols.length*colAdv, blockH=maxN*charAdv;
+    ctx.textAlign='center';                          // 各文字を列中心に揃える（既定の左揃えだと右へずれる）
     cols.forEach((col,ci)=>{
-      const colX=l.w/2-colAdv*(ci+0.5);
+      const colX=blockW/2-colAdv*(ci+0.5);           // 列ブロックをボックス中央に揃える（padで偏らせない）
       chars(col).forEach((ch,ji)=>{
-        let cy=-l.h/2+charAdv*(ji+0.5), cx=colX;
+        let cy=-blockH/2+charAdv*(ji+0.5), cx=colX;
         if(V_PUNCT.has(ch)){cx+=fs*0.28;cy-=fs*0.30;} else if(V_SMALL.has(ch)){cx-=fs*0.06;cy-=fs*0.08;}
         ctx.save(); ctx.translate(cx,cy); if(V_ROTATE.has(ch)||isRotatableLatin(ch))ctx.rotate(Math.PI/2);
         if(doStroke){ctx.lineWidth=l.strokeWidth;ctx.strokeStyle=sc;ctx.strokeText(ch,0,0);}
@@ -1486,6 +1489,9 @@ function openBg(){
         <button data-f="cover" class="${state.bgFit==='cover'?'on':''}">埋める</button>
         <button data-f="contain" class="${state.bgFit==='contain'?'on':''}">収める</button>
         <button data-f="stretch" class="${state.bgFit==='stretch'?'on':''}">引き伸ばす</button></div></div>
+      <div class="field"><label>登録された背景（選ぶとステージが実寸に合います）</label>
+        <div id="bgList" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-height:230px;overflow:auto">
+          <span class="note" style="margin:0">読み込み中…</span></div></div>
       <div class="field"><label>背景画像を差し替え</label><button class="sbtn wide" id="bgPick">画像を選ぶ…</button></div>
       <div class="field"><label>下地の色（画像の余白）</label><div class="row"><input type="color" id="bgCol" value="${state.bgColor}"><span class="note" style="margin:0">「収める」時の余白色</span></div></div>
       <div class="field"><button class="sbtn wide" id="bgReset">最初のサンバーストに戻す</button></div>
@@ -1496,8 +1502,36 @@ function openBg(){
   bgModal.querySelector('#bgCol').oninput=e=>{state.bgColor=e.target.value;renderAll();};
   bgModal.querySelector('#bgReset').onclick=async()=>{state.bg=await loadImage(BG_DATA);renderAll();toast('サンバーストに戻しました');};
   document.body.appendChild(bgModal);
+  (async()=>{
+    const list=await fetchBackgrounds();
+    const wrap=bgModal&&bgModal.querySelector('#bgList'); if(!wrap) return;
+    if(!list.length){ wrap.innerHTML='<span class="note" style="margin:0">まだ登録がありません</span>'; return; }
+    wrap.innerHTML='';
+    list.forEach(b=>{
+      const it=el(`<button title="${escapeHtml(b.name||'')} (${b.width}×${b.height})" style="padding:0;border:1px solid var(--line2);border-radius:8px;overflow:hidden;aspect-ratio:1/1;background:#0003;cursor:pointer"><img src="${b.url}" loading="lazy" alt="" style="width:100%;height:100%;object-fit:cover;display:block"></button>`);
+      it.onclick=()=>{ useBackgroundImageURL(b.url,b.name); };
+      wrap.appendChild(it);
+    });
+  })();
 }
 let sizeModal=null;
+function setStageSize(w,h){
+  w=Math.max(64,Math.min(4096,Math.round(w))); h=Math.max(64,Math.min(4096,Math.round(h)));
+  const ox=(w-state.stageW)/2, oy=(h-state.stageH)/2;
+  state.layers.forEach(l=>{l.x+=ox;l.y+=oy;});   // 中央基準で既存レイヤーを保持
+  state.stageW=w; state.stageH=h; layoutStage();
+}
+// 背景画像を採用し、ステージを画像の実寸（上限4096）に自動で合わせる
+async function useBackgroundImageURL(url,name){
+  try{
+    const img=await loadImage(url);
+    const cv=canvasFromImage(img,4096);
+    state.bg=cv; state.bgFit='cover';
+    setStageSize(cv.width,cv.height);
+    renderAll(); flushHistory();
+    toast((name?('「'+name+'」'):'背景')+'を設定（'+cv.width+'×'+cv.height+'）');
+  }catch(e){ toast('背景画像を読み込めませんでした'); }
+}
 const PRESETS=[['正方形 1600²',1600,1600],['配信オーバーレイ 1920×1080',1920,1080],['縦長 1080×1920',1080,1920],['X投稿 1600×900',1600,900],['サムネ 1280×720',1280,720]];
 function openSize(){
   if(sizeModal)sizeModal.remove();
@@ -1628,7 +1662,7 @@ document.getElementById('btnRedo').onclick=redo;
 document.getElementById('btnSave').onclick=saveProject;
 document.getElementById('btnLoad').onclick=()=>document.getElementById('fileProj').click();
 document.getElementById('fileImg').onchange=e=>{if(e.target.files[0])addImageFromFile(e.target.files[0]);e.target.value='';};
-document.getElementById('fileBg').onchange=async e=>{if(e.target.files[0]){const u=URL.createObjectURL(e.target.files[0]);state.bg=canvasFromImage(await loadImage(u),2000);URL.revokeObjectURL(u);renderAll();}e.target.value='';};
+document.getElementById('fileBg').onchange=async e=>{if(e.target.files[0]){const u=URL.createObjectURL(e.target.files[0]);const img=await loadImage(u);URL.revokeObjectURL(u);const cv=canvasFromImage(img,4096);state.bg=cv;state.bgFit='cover';setStageSize(cv.width,cv.height);renderAll();flushHistory();}e.target.value='';};
 document.getElementById('fileProj').onchange=e=>{if(e.target.files[0])loadProject(e.target.files[0]);e.target.value='';};
 
 /* ---- mobile drawers ---- */
@@ -1677,9 +1711,40 @@ const ADMIN_CFG = {
   anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ6andodGVtb2J0cmZhZ2hzZHd0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5MDY3MzEsImV4cCI6MjA5NTQ4MjczMX0.NJuzPVdv3KWfNFswlfhYqX-ppC5wFUX-7nGXN_HiCLI',
   table: 'sunburst_config',
   rowId: 1,
+  bgBucket: 'sunburst-public',     // 登録背景の画像置き場（公開バケット）
+  bgTable: 'sunburst_backgrounds', // 登録背景の一覧テーブル
   defaultEnabled: true,   // 設定を取得できないとき（オフライン等）の既定。ロックを優先したいなら false に
 };
 let supa=null, adminUser=null;
+
+// 登録背景（Supabase）: 一覧取得・アップロード・削除
+async function fetchBackgrounds(){
+  const s=await getSupa(); if(!s) return [];
+  try{
+    const { data, error } = await s.from(ADMIN_CFG.bgTable).select('*').order('sort',{ascending:true}).order('created_at',{ascending:true});
+    if(error){ console.warn(error); return []; }
+    return (data||[]).map(r=>({ ...r, url: s.storage.from(ADMIN_CFG.bgBucket).getPublicUrl(r.path).data.publicUrl }));
+  }catch(e){ console.warn(e); return []; }
+}
+async function uploadBackground(file){
+  const s=await getSupa(); if(!s) return {ok:false,msg:'未接続'};
+  try{
+    const img=await loadImage(URL.createObjectURL(file));
+    const w=img.width, h=img.height;
+    const ext=((file.name.split('.').pop()||'png').toLowerCase().replace(/[^a-z0-9]/g,''))||'png';
+    const path='bg/'+Date.now().toString(36)+Math.random().toString(36).slice(2,7)+'.'+ext;
+    const up=await s.storage.from(ADMIN_CFG.bgBucket).upload(path,file,{contentType:file.type||'image/png',upsert:false});
+    if(up.error) return {ok:false,msg:up.error.message};
+    const ins=await s.from(ADMIN_CFG.bgTable).insert({ name:(file.name||'背景').replace(/\.[^.]+$/,'').slice(0,60), path, width:w, height:h });
+    if(ins.error) return {ok:false,msg:ins.error.message};
+    return {ok:true};
+  }catch(e){ return {ok:false,msg:String(e&&e.message||e)}; }
+}
+async function deleteBackground(b){
+  const s=await getSupa(); if(!s) return {ok:false};
+  try{ await s.storage.from(ADMIN_CFG.bgBucket).remove([b.path]); await s.from(ADMIN_CFG.bgTable).delete().eq('id',b.id); return {ok:true}; }
+  catch(e){ return {ok:false,msg:String(e)}; }
+}
 
 async function getSupa(){
   if(supa) return supa;
@@ -1778,13 +1843,40 @@ function openAdminModal(){
         </label>
         <div class="note">OFFにすると、全利用者の「背景」ボタンが無効化され、既定のサンバーストに固定されます（即時反映）。</div>
         <div id="amMsg" class="note"></div>
-        <button class="sbtn wide" id="amLogout" style="margin-top:10px">ログアウト</button>`;
+        <div class="divider"></div>
+        <div class="note" style="font-weight:700;color:var(--ink);margin-bottom:6px">背景画像の登録（全利用者が選べます）</div>
+        <input id="amBgFile" type="file" accept="image/*" style="width:100%">
+        <button class="sbtn cta wide" id="amBgUp" style="margin-top:6px">この画像を登録</button>
+        <div id="amBgMsg" class="note"></div>
+        <div id="amBgList" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-height:200px;overflow:auto;margin-top:8px"></div>
+        <div class="divider"></div>
+        <button class="sbtn wide" id="amLogout">ログアウト</button>`;
       body.querySelector('#amToggle').onchange=async(e)=>{
         const v=e.target.checked; body.querySelector('#amMsg').textContent='更新中…';
         const r=await setBgReplace(v);
         body.querySelector('#amMsg').textContent=r.ok?'保存しました':'保存できませんでした。通信状況をご確認ください。';
         if(!r.ok) e.target.checked=!v;
       };
+      const refreshBgList=async()=>{
+        const wrap=body.querySelector('#amBgList'); if(!wrap)return; wrap.innerHTML='<span class="note" style="margin:0">読み込み中…</span>';
+        const list=await fetchBackgrounds();
+        if(!list.length){ wrap.innerHTML='<span class="note" style="margin:0">まだ登録がありません</span>'; return; }
+        wrap.innerHTML='';
+        list.forEach(b=>{
+          const it=el(`<div style="position:relative;border:1px solid var(--line2);border-radius:8px;overflow:hidden;aspect-ratio:1/1;background:#0003"><img src="${b.url}" loading="lazy" alt="" style="width:100%;height:100%;object-fit:cover;display:block"><button title="削除" style="position:absolute;top:2px;right:2px;width:22px;height:22px;border:none;border-radius:50%;background:#000a;color:#fff;cursor:pointer">✕</button></div>`);
+          it.querySelector('button').onclick=async()=>{ if(!confirm('この背景を削除しますか？'))return; const r=await deleteBackground(b); if(r.ok)refreshBgList(); };
+          wrap.appendChild(it);
+        });
+      };
+      body.querySelector('#amBgUp').onclick=async()=>{
+        const f=body.querySelector('#amBgFile').files[0];
+        if(!f){ body.querySelector('#amBgMsg').textContent='画像を選んでください。'; return; }
+        body.querySelector('#amBgMsg').textContent='アップロード中…';
+        const r=await uploadBackground(f);
+        body.querySelector('#amBgMsg').textContent=r.ok?'登録しました':('登録できませんでした：'+(r.msg||''));
+        if(r.ok){ body.querySelector('#amBgFile').value=''; refreshBgList(); }
+      };
+      refreshBgList();
       body.querySelector('#amLogout').onclick=async()=>{ await s.auth.signOut(); adminUser=null; render(); };
     }
   };
