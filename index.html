@@ -203,7 +203,7 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:5px}
 <body>
 
 <div class="top">
-  <div class="brand"><span class="mark"></span><span class="bwrap"><span class="bruby">サンバースト・コンポーザー</span><b>例の背景生成機</b></span></div>
+  <div class="brand"><button class="mark" id="brandMark" title="差し入れ・応援" style="cursor:pointer;border:none;padding:0"></button><span class="bwrap"><span class="bruby">サンバースト・コンポーザー</span><b>例の背景生成機</b></span></div>
   <button class="tbtn" id="btnUndo" title="元に戻す (Ctrl+Z)">↶</button>
   <button class="tbtn" id="btnRedo" title="やり直し (Ctrl+Shift+Z)">↷</button>
   <button class="tbtn" id="btnText"><span class="ic">＋</span>テキスト</button>
@@ -1882,6 +1882,22 @@ function openAdminModal(){
   };
 }
 document.getElementById('btnAdmin').onclick=openAdminModal;
+
+// 差し入れ・応援（左上のサンバーストマークから開く）
+function openDonate(){
+  const m=el(`<div class="scrim"><div class="modal" style="width:min(420px,94vw)"><div class="mhead"><h3>差し入れ・応援</h3><button class="x" id="dnX">✕</button></div>
+    <div style="padding:18px">
+      <p style="margin:0 0 14px;line-height:1.75;color:var(--ink)">この背景生成機、楽しんでもらえたら<br>よかったら応援してください。</p>
+      <a class="sbtn cta wide" href="https://www.amazon.co.jp/hz/wishlist/ls/1988207W29TUN" target="_blank" rel="noopener" style="text-decoration:none;display:flex;align-items:center;justify-content:center;gap:8px">🎁 Amazon ほしいものリスト</a>
+      <button class="sbtn wide" id="dnClose" style="margin-top:10px">閉じる</button>
+    </div></div></div>`);
+  document.body.appendChild(m);
+  const close=()=>m.remove();
+  m.querySelector('#dnX').onclick=close;
+  m.querySelector('#dnClose').onclick=close;
+  m.addEventListener('click',e=>{ if(e.target===m) close(); });
+}
+document.getElementById('brandMark').onclick=openDonate;
 
 (async function init(){
   try{state.bg=await loadImage(BG_DATA);}catch(_){}
